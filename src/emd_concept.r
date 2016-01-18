@@ -1,3 +1,4 @@
+library(argparse)
 library(EMD)
 
 #Arg <- function(z) {
@@ -36,12 +37,22 @@ square <- function(t, period = 1.0) {
 
 }
 
+signal.types <- list(
+    sinusoid = sinusoid,
+    sawtooth = sawtooth,
+    triangle = triangle,
+    square   = square
+)
+
+# placeholder
+noise.types <- list(
+    normal   = rnorm
+)
+
 
 generate.signal <- function(fn = sinusoid,
                             period = 1.0, num.cycles = 2.0, precision = 0.01,
                             noise.sd = 1.0) {
-
-    angular.frequency <- 2*pi / period
 
     t <- seq(0, num.cycles*period, precision)
 
@@ -113,9 +124,10 @@ fit.statistics <- function(signal, deterministic.signal) {
 }
 
 
-plot.signal <- function(signal) {
+plot.signal <- function(signal,
+                        output = ".") {
 
-    pdf("generated_signal.pdf")
+    pdf(file.path(output, "generated_signal.pdf"))
 
     plot(signal$t, signal$observation,
          type = "p", lwd = 1, pch = ".",
@@ -128,9 +140,10 @@ plot.signal <- function(signal) {
 }
 
 
-plot.determinism <- function(signal, deterministic.signal) {
+plot.determinism <- function(signal, deterministic.signal,
+                             output = ".") {
 
-    pdf("deterministic_signal.pdf")
+    pdf(file.path(output, "deterministic_signal.pdf"))
 
     plot(signal$t, signal$signal,
          type = "l", col = "blue")
@@ -142,9 +155,10 @@ plot.determinism <- function(signal, deterministic.signal) {
 }
 
 
-plot.emd <- function(signal, emd.result) {
+plot.emd <- function(signal, emd.result,
+                     output = ".") {
 
-    pdf("emd_results.pdf")
+    pdf(file.path(output, "emd_results.pdf"))
 
     par(mfrow = c(ceiling(emd.result$nimf/2)+1, 2))
 
@@ -168,9 +182,10 @@ plot.emd <- function(signal, emd.result) {
 }
 
 
-plot.amplitude.spectra <- function(fourier.transform) {
+plot.amplitude.spectra <- function(fourier.transform,
+                                   output = ".") {
 
-    pdf("imf_amplitude_spectra.pdf")
+    pdf(file.path(output, "imf_amplitude_spectra.pdf"))
 
     par(mfrow = c(ceiling(fourier.transform$nimf / 2), 2))
 
@@ -190,9 +205,10 @@ plot.amplitude.spectra <- function(fourier.transform) {
 }
 
 
-plot.phase.spectra <- function(fourier.transform) {
+plot.phase.spectra <- function(fourier.transform,
+                               output = ".") {
 
-    pdf("imf_phase_spectra.pdf")
+    pdf(file.path(output, "imf_phase_spectra.pdf"))
 
     par(mfrow = c(ceiling(fourier.transform$nimf / 2), 2))
 
@@ -209,9 +225,10 @@ plot.phase.spectra <- function(fourier.transform) {
 }
 
 
-plot.imf.partitions <- function(signal, emd.result) {
+plot.imf.partitions <- function(signal, emd.result,
+                                output = ".") {
 
-    pdf("extracted_determinism_candidates.pdf")
+    pdf(file.path(output, "extracted_determinism_candidates.pdf"))
 
     par(mfrow = c(ceiling(emd.result$nimf/2), 2))
 
@@ -237,26 +254,74 @@ plot.imf.partitions <- function(signal, emd.result) {
 }
 
 
+get.args <- function() {
+
+    p <- ArgumentParser(
+        description = "Concept script for decomposing singals with EMD.")
+
+    add_argument <- function(...) { p$add_argument(...) }
+
+    add_argument("signal_type", choices = names(signal.types),
+        help = "Type of signal to use as input.")
+    add_argument("noise_type", choices = names(noise.types),
+        help = "Type of noise to add to signal.")
+    add_argument("criteria", type = "integer",
+        help = "Criteria for separating stochastic and deterministic signals.")
+
+    add_argument("-o", "--output",
+        help = "Output directory for plots.")
+
+    add_argument("--noise-sd", type = "double", default = 1.0,
+        help = "Standard deviation of added noise.")
+    add_argument("--num-cycles", type = "double", default = 2.0,
+        help = "Number of times to repeat generated signal.")
+    add_argument("--period", type = "double", default = 1.0,
+        help = "Period of generated signal.")
+    add_argument("--time-step", type = "double", default = 0.01,
+        help = "Time between samples in generated signal.")
+    add_argument("--seed", type = "integer", default = 0,
+        help = "Random number generator seed.")
+
+    args <- p$parse_args()
+
+    args$signal_type <- signal.types[[args$signal_type]]
+    args$noise_type <- noise.types[[args$noise_type]]
+
+    args
+
+}
+
 
 main <- function() {
 
-    set.seed(4)
+    args <- get.args()
 
-    signal <- generate.signal(sinusoid,
-                              noise.sd = 0.5, num.cycles = 5)
+    set.seed(args$seed)
+
+    if(!is.null(args$output)) {
+        dir.create(args$output, recursive = TRUE)
+    }
+
+    signal <- generate.signal(args$signal_type,
+                              period = args$period,
+                              noise.sd = args$noise_sd,
+                              precision = args$time_step,
+                              num.cycles = args$num_cycles)
 
     emd.result <- decompose.signal(signal$t, signal$observation)
     fourier.transform <- fourier.transform(signal$t, emd.result$imf)
     deterministic.signal <- extract.determinism(emd.result, fourier.transform,
-                                                criteria = 3)
+                                                criteria = args$criteria)
     stats <- fit.statistics(signal, deterministic.signal)
 
-    plot.signal(signal)
-    plot.determinism(signal, deterministic.signal)
-    plot.emd(signal, emd.result)
-    plot.amplitude.spectra(fourier.transform)
-    plot.phase.spectra(fourier.transform)
-    plot.imf.partitions(signal, emd.result)
+    if(!is.null(args$output)) {
+        plot.signal(signal, output = args$output)
+        plot.determinism(signal, deterministic.signal, output = args$output)
+        plot.emd(signal, emd.result, output = args$output)
+        plot.amplitude.spectra(fourier.transform, output = args$output)
+        plot.phase.spectra(fourier.transform, output = args$output)
+        plot.imf.partitions(signal, emd.result, output = args$output)
+    }
 
     print(stats, row.names = FALSE)
 
