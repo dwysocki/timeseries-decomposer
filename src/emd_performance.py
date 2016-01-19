@@ -2,9 +2,12 @@
 
 from argparse import ArgumentParser
 from collections import defaultdict
-from itertools import tee
-from os import path
+from itertools import chain, tee
+from os import makedirs, path
+from os.path import isdir
+from sys import stdout
 import numpy as np
+import matplotlib.pyplot as plt
 
 def get_args():
     parser = ArgumentParser()
@@ -29,6 +32,9 @@ def get_args():
 
     args = parser.parse_args()
 
+    if args.output is not None:
+        make_sure_path_exists(args.output)
+
     return args
 
 
@@ -48,22 +54,42 @@ def main():
     # average each bin and create a map
     # {stat1: [mean(stat1 from bin1), ..., mean(stat1 from binN)],
     #  ...,
-    #  statM; [mean(statM from bin1), ..., mean(statM from binN)]}
+    #  statM: [mean(statM from bin1), ..., mean(statM from binN)]}
     stats = compressed_average_dicts(stat_samples)
 
-    for stat_name, stat_vals in stats.items():
-        print("#### {stat_name} ####".format(stat_name=stat_name))
+    # print stats table to stdout
+    output_table = np.column_stack(chain([bins[:-1], bins[1:]], stats.values()))
+    header = "\t".join(chain(["lo", "hi"], stats.keys()))
+    np.savetxt(stdout.buffer, output_table, header=header)
 
-        for (lo, hi), stat in zip(pairwise(bins), stat_vals):
-            print("{lo:.3f} <= x < {hi:.3f} = {stat:.3f}"
-                  .format(lo=lo, hi=hi, stat=stat))
+    if args.output is not None:
+        make_plots(bins, stats, args)
 
-        print()
 
 
 def run_emd(args, sd):
-    return {"MSE": np.random.uniform(0, 1),
-            "R^2": np.random.uniform(10, 11)}
+    return {"MSE": 2*sd,
+            "R^2": sd**2}
+
+
+def make_plots(bins, stats, args):
+    for stat_name, stat_vals in stats.items():
+        plot_histogram(bins, stat_vals, stat_name, args.output)
+
+
+def plot_histogram(bins, values, name, output):
+    left = bins[:-1]
+    right = bins[1:]
+    width = right - left
+
+    fig, ax = plt.subplots()
+
+    ax.bar(left=left, width=width, height=values)
+
+    ax.set_xlabel(r"$\sigma$")
+    ax.set_ylabel(name)
+
+    fig.savefig(path.join(output, name+"_histogram"))
 
 
 def pairwise(iterable):
@@ -126,6 +152,28 @@ def compressed_average_dicts(list_of_list_of_dicts):
     dict_of_averages = compress_dicts(list_of_dicts_of_averages)
 
     return dict_of_averages
+
+
+def make_sure_path_exists(path):
+    """make_sure_path_exists(path)
+
+    Creates the supplied *path* if it does not exist.
+    Raises *OSError* if the *path* cannot be created.
+
+    **Parameters**
+
+    path : str
+        Path to create.
+
+    **Returns**
+
+    None
+    """
+    try:
+        makedirs(path)
+    except OSError:
+        if not isdir(path):
+            raise
 
 
 if __name__ == "__main__":
