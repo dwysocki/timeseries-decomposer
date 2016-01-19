@@ -1,5 +1,8 @@
-library(argparse)
-library(EMD)
+#!/usr/bin/Rscript
+
+suppressWarnings(suppressMessages(library(argparse)))
+suppressWarnings(suppressMessages(library(EMD)))
+
 
 #Arg <- function(z) {
 #  atan(Im(z) / Re(z))
@@ -103,11 +106,19 @@ extract.determinism <- function(emd.result, fourier.transform,
     # placeholder, in the future this will only happen if criteria is an
     # integer, and otherwise will assume it's a function which returns an
     # integer
-    index <- criteria
+    index <- min(criteria, emd.result$nimf)
 
-    components <- emd.result$imf[,(index:emd.result$nimf)]
+    if(emd.result$nimf > 1) {
+        components <- emd.result$imf[,(index:emd.result$nimf)]
 
-    rowSums(components)
+        if(!is.null(dim(components))) {
+            rowSums(components)
+        } else {
+            components
+        }
+    } else {
+        emd.result$imf
+    }
 
 }
 

@@ -5,7 +5,9 @@ from collections import defaultdict
 from itertools import chain, tee
 from os import makedirs, path
 from os.path import isdir
+from subprocess import check_output
 from sys import stdout
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -26,9 +28,23 @@ def get_args():
         default=1.0,
         help="")
     parser.add_argument("--num-bins", type=int,
-        default=11)
+        default=10,
+        help="")
     parser.add_argument("--samples-per-bin", type=int,
-        default=10)
+        default=10,
+        help="")
+    parser.add_argument("--seed", type=int,
+        help="Random number generator seed.")
+
+    parser.add_argument("--num-cycles", type=float,
+        default=2.0,
+        help="")
+    parser.add_argument("--time-step", type=float,
+        default=0.01,
+        help="")
+    parser.add_argument("--r-seed", type=int,
+        default=0,
+        help="Random number generator seed for R script.")
 
     args = parser.parse_args()
 
@@ -42,7 +58,7 @@ def main():
     args = get_args()
 
     # separators values for standard deviation bins
-    bins = np.linspace(0.0, args.noise_sd_max, args.num_bins,
+    bins = np.linspace(0.0, args.noise_sd_max, args.num_bins+1,
                        endpoint=True)
     # a list of binned samples of noise standard deviations to use
     sd_samples = [np.random.uniform(a, b, args.samples_per_bin)
@@ -60,7 +76,7 @@ def main():
     # print stats table to stdout
     output_table = np.column_stack(chain([bins[:-1], bins[1:]], stats.values()))
     header = "\t".join(chain(["lo", "hi"], stats.keys()))
-    np.savetxt(stdout.buffer, output_table, header=header)
+    np.savetxt(stdout.buffer, output_table, header=header, delimiter="\t")
 
     if args.output is not None:
         make_plots(bins, stats, args)
@@ -68,8 +84,30 @@ def main():
 
 
 def run_emd(args, sd):
-    return {"MSE": 2*sd,
-            "R^2": sd**2}
+    # create calling sequence
+    call = ["./emd_concept.r",
+            # positional arguments
+            args.signal_type, args.noise_type, args.criteria,
+            # keyword arguments
+            "--num-cycles", args.num_cycles,
+            "--time-step", args.time_step,
+            "--seed", args.r_seed,
+            # most importantly, give the standard deviation for this call
+            "--noise-sd", sd]
+    # ensure all arguments are of type str
+    call = map(str, call)
+    results = check_output(call)
+
+    return parse_emd(results)
+
+
+def parse_emd(results):
+    header_str, stats_str = results.splitlines()
+
+    header = map(lambda b: b.decode(), header_str.strip().split())
+    stats  = map(float, stats_str.strip().split())
+
+    return dict(zip(header, stats))
 
 
 def make_plots(bins, stats, args):
