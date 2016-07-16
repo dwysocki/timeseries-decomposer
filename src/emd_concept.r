@@ -2,13 +2,17 @@
 
 suppressWarnings(suppressMessages(library(argparse)))
 suppressWarnings(suppressMessages(library(EMD)))
+suppressWarnings(suppressMessages(library(c3net)))
 
 
-#Arg <- function(z) {
-#  atan(Im(z) / Re(z))
-#}
+## Flat signal, x(t) = 0.
+flatline <- function(t, ...) {
 
+    rep(0, length(t))
 
+}
+
+## Sinusoidal signal with given period.
 sinusoid <- function(t, period = 1.0) {
 
     angular.frequency <- 2*pi / period
@@ -17,7 +21,7 @@ sinusoid <- function(t, period = 1.0) {
 
 }
 
-
+## Sawtooth signal with given period.
 sawtooth <- function(t, period = 1.0) {
 
     t.over.period <- t / period
@@ -26,41 +30,45 @@ sawtooth <- function(t, period = 1.0) {
 
 }
 
-
+## Triangle-wave signal with given period.
 triangle <- function(t, period = 1.0) {
 
     2 * abs(sawtooth(t, period = period)) - 1
 
 }
 
-
+## Square-wave signal with given period.
 square <- function(t, period = 1.0) {
 
     sign(sinusoid(t, period = period))
 
 }
 
+## Mapping of signal type names to generating functions.
 signal.types <- list(
+    flatline = flatline,
     sinusoid = sinusoid,
     sawtooth = sawtooth,
     triangle = triangle,
     square   = square
 )
 
-# placeholder
+## Mapping of noise type names to generating functions.
 noise.types <- list(
-    normal   = rnorm
+    normal   = rnorm,
+    foobar   = rnorm
 )
 
-
-generate.signal <- function(fn = sinusoid,
+## Generate asignal with the given deterministic and stochastic generating
+## functions.
+generate.signal <- function(fn = sinusoid, noise = rnorm,
                             period = 1.0, num.cycles = 2.0, precision = 0.01,
                             noise.sd = 1.0) {
 
     t <- seq(0, num.cycles*period, precision)
 
     signal <- fn(t, period = period)
-    noise  <- rnorm(signal, sd = noise.sd)
+    noise  <- noise(n = signal, mean = 0.0, sd = noise.sd)
 
     observation <- signal+noise
 
@@ -71,14 +79,17 @@ generate.signal <- function(fn = sinusoid,
 
 }
 
-
+## Decompose a signal using EMD.
+## TODO: Add support for different EMD implementations.
 decompose.signal <- function(t, x) {
 
     emd(xt = x, tt = t, boundary = "periodic")
 
 }
 
-
+## Transform a signal into frequency-space using a Fourier transform or an
+## approximation thereof.
+## TODO: Add support for different approximations (e.g. periodograms).
 fourier.transform <- function(t, imfs) {
 
     ffts <- apply(imfs, 2, fft)
@@ -99,7 +110,7 @@ fourier.transform <- function(t, imfs) {
 
 }
 
-
+## Extract the deterministic component of an observed signal.
 extract.determinism <- function(emd.result, fourier.transform,
                                 criteria = 2) {
 
@@ -122,7 +133,8 @@ extract.determinism <- function(emd.result, fourier.transform,
 
 }
 
-
+## Compute various fit statistics on extracted deterministic signal and
+## real signal.
 fit.statistics <- function(signal, deterministic.signal) {
 
     N <- length(deterministic.signal)
@@ -134,7 +146,7 @@ fit.statistics <- function(signal, deterministic.signal) {
 
 }
 
-
+## Plot the original signal.
 plot.signal <- function(signal,
                         output = ".") {
 
@@ -150,14 +162,15 @@ plot.signal <- function(signal,
 
 }
 
-
+## Plot the true and extracted deterministic components of the signal.
 plot.determinism <- function(signal, deterministic.signal,
                              output = ".") {
 
     pdf(file.path(output, "deterministic_signal.pdf"))
 
     plot(signal$t, signal$signal,
-         type = "l", col = "blue")
+         type = "l", col = "blue",
+         xlab = "t", ylab = "s(t)")
     lines(signal$t, deterministic.signal,
           col = "red")
 
@@ -165,7 +178,7 @@ plot.determinism <- function(signal, deterministic.signal,
 
 }
 
-
+## Plot the original signal, as well as its IMFs and residue.
 plot.emd <- function(signal, emd.result,
                      output = ".") {
 
@@ -174,25 +187,28 @@ plot.emd <- function(signal, emd.result,
     par(mfrow = c(ceiling(emd.result$nimf/2)+1, 2))
 
     plot(signal$t, signal$observation,
-         type = "p", lwd = 1, pch = ".")
+         type = "p", lwd = 1, pch = ".",
+         xlab = "t", ylab = "x(t)")
 
     for(i in 1:emd.result$nimf) {
 
         imf <- emd.result$imf[,i]
 
         plot(signal$t, imf,
-             type = "l")
+             type = "l",
+             xlab = "t", ylab = substitute(h[i](t), list(i=i)))
 
     }
 
     plot(signal$t, emd.result$residue,
-         type = "l")
+         type = "l",
+         xlab = "t", ylab = "r(t)")
 
     dev.off()
 
 }
 
-
+## Plot the amplitude-components of the Fourier spectra of each IMF.
 plot.amplitude.spectra <- function(fourier.transform,
                                    output = ".") {
 
@@ -207,7 +223,8 @@ plot.amplitude.spectra <- function(fourier.transform,
 
         amplitudes <- fourier.transform$amplitudes[idx,i]
         plot(fourier.transform$freq[idx], amplitudes,
-             type = "l")
+             type = "l",
+             xlab = "f", ylab = substitute(A[i](f), list(i=i)))
 
     }
 
@@ -215,7 +232,7 @@ plot.amplitude.spectra <- function(fourier.transform,
 
 }
 
-
+## Plot the phase-components of the Fourier spectra of each IMF.
 plot.phase.spectra <- function(fourier.transform,
                                output = ".") {
 
@@ -227,7 +244,8 @@ plot.phase.spectra <- function(fourier.transform,
 
         phase.spectrum <- fourier.transform$phase.spectra[,i]
         plot(fourier.transform$freq, phase.spectrum,
-             type = "l")
+             type = "l",
+             xlab = "f", ylab = substitute(theta[i](f), list(i=i)))
 
     }
 
@@ -235,7 +253,8 @@ plot.phase.spectra <- function(fourier.transform,
 
 }
 
-
+## Plot all of the candidate deterministic signals created by
+## partitioning the IMFs.
 plot.imf.partitions <- function(signal, emd.result,
                                 output = ".") {
 
@@ -254,7 +273,8 @@ plot.imf.partitions <- function(signal, emd.result,
              }
 
         plot(signal$t, signal$signal,
-             type = "l", col = "blue")
+             type = "l", col = "blue",
+             xlab = "t", ylab = substitute(tilde(s[i](t)), list(i=i)))
         lines(signal$t, d,
               col = "red")
 
@@ -264,7 +284,21 @@ plot.imf.partitions <- function(signal, emd.result,
 
 }
 
+## Plot the mutual information between successive IMF phase spectra.
+plot.mutual.information <- function(mutual.information,
+                                    output = ".") {
 
+    pdf(file.path(output, "mutual_information.pdf"))
+
+    plot(1:length(mutual.information), mutual.information,
+         type = "l", col = "black",
+         xlab = "i", ylab = expression(nu[i]))
+
+    dev.off()
+
+}
+
+## Parse CLI arguments.
 get.args <- function() {
 
     p <- ArgumentParser(
@@ -302,29 +336,44 @@ get.args <- function() {
 
 }
 
-
+## Main program logic.
 main <- function() {
 
+    # Parse command line arguments.
     args <- get.args()
 
+    # Fix the random seed for reproducibility.
     set.seed(args$seed)
 
+    # Create output directory if specified.
     if(!is.null(args$output)) {
         dir.create(args$output, recursive = TRUE)
     }
 
+    # Generate a signal to decompose.
     signal <- generate.signal(args$signal_type,
                               period = args$period,
                               noise.sd = args$noise_sd,
                               precision = args$time_step,
                               num.cycles = args$num_cycles)
 
+    # Decompose signal into IMFs and residue with EMD.
     emd.result <- decompose.signal(signal$t, signal$observation)
+    # Take the Fourier transform of each IMF.
     fourier.transform <- fourier.transform(signal$t, emd.result$imf)
+    # Determine mutual information of adjacent IMFs.
+    mutual.information <- apply(fourier.transform$phase.spectra, 1, rbind)
+    mutual.information <- makemim(mutual.information)
+    mutual.information <-
+        diag(mutual.information[-length(mutual.information), -1])
+    # Partition the IMFs into deterministic and non-deterministic components,
+    # and combine the deterministic ones into a single signal.
     deterministic.signal <- extract.determinism(emd.result, fourier.transform,
                                                 criteria = args$criteria)
+    # Determine fit statistics.
     stats <- fit.statistics(signal, deterministic.signal)
 
+    # Create plots if output directory specified.
     if(!is.null(args$output)) {
         plot.signal(signal, output = args$output)
         plot.determinism(signal, deterministic.signal, output = args$output)
@@ -332,8 +381,10 @@ main <- function() {
         plot.amplitude.spectra(fourier.transform, output = args$output)
         plot.phase.spectra(fourier.transform, output = args$output)
         plot.imf.partitions(signal, emd.result, output = args$output)
+        plot.mutual.information(mutual.information, output = args$output)
     }
 
+    # Display fit statistics.
     print(stats, row.names = FALSE)
 
 }
