@@ -3,7 +3,7 @@
 suppressWarnings(suppressMessages(library(argparse)))
 suppressWarnings(suppressMessages(library(EMD)))
 suppressWarnings(suppressMessages(library(c3net)))
-
+suppressWarnings(suppressMessages(library(cross.spectral.analysis)))
 
 ## Flat signal, x(t) = 0.
 flatline <- function(t, ...) {
@@ -90,20 +90,49 @@ decompose.signal <- function(t, x) {
 ## Transform a signal into frequency-space using a Fourier transform or an
 ## approximation thereof.
 ## TODO: Add support for different approximations (e.g. periodograms).
-fourier.transform <- function(t, imfs) {
+fourier.transform <- function(t, imfs,
+                              method = "FFT") {
 
-    ffts <- apply(imfs, 2, fft)
-    amplitudes <- apply(ffts, 2, function(x) { Mod(x)^2 })
-    phases <- apply(ffts, 2, Arg)
-
+    ## TODO: Make choice of frequency sampling an option, when using LSP.
     N <- length(t)
     T <- max(t) - min(t)
     delta.f <- 1/T
     f.max <- (N/2) * delta.f
     freq <- seq(-f.max, f.max, delta.f)[-floor(N/2)]
 
+    if (method == "FFT") {
+
+        ffts <- apply(imfs, 2, fft)
+        amplitudes <- apply(ffts, 2, function(x) { Mod(x)^2 })
+        phases <- apply(ffts, 2, Arg)
+
+
+    } else if (method == "LSP") {
+
+        omega <- 2*pi*freq
+        amplitudes <- apply(
+            imfs,
+            2,
+            function (imf) {
+                amplitude.spectrum(t, imf, omega)
+            }
+        )
+        phases <- apply(
+            imfs,
+            2,
+            function (imf) {
+                phase.spectrum(t, imf, omega)
+            }
+        )
+    } else {
+
+        stop("Error: `method` must be one of { FFT, LSP }")
+
+    }
+
+
     list(freq          = freq,
-         fft           = ffts,
+#         fft           = ffts,
          amplitudes    = amplitudes,
          phase.spectra = phases,
          nimf          = dim(imfs)[2])
@@ -327,6 +356,10 @@ get.args <- function() {
     add_argument("--seed", type = "integer", default = 0,
         help = "Random number generator seed.")
 
+    add_argument("--fourier-method", choices = c("FFT", "LSP"),
+        default = "FFT",
+        help = "Method used for Fourier transformation.")
+
     args <- p$parse_args()
 
     args$signal_type <- signal.types[[args$signal_type]]
@@ -360,7 +393,8 @@ main <- function() {
     # Decompose signal into IMFs and residue with EMD.
     emd.result <- decompose.signal(signal$t, signal$observation)
     # Take the Fourier transform of each IMF.
-    fourier.transform <- fourier.transform(signal$t, emd.result$imf)
+    fourier.transform <- fourier.transform(signal$t, emd.result$imf,
+                                           method = args$fourier_method)
     # Determine mutual information of adjacent IMFs.
     mutual.information <- apply(fourier.transform$phase.spectra, 1, rbind)
     mutual.information <- makemim(mutual.information)
