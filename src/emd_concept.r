@@ -12,6 +12,26 @@ flatline <- function(t, ...) {
 
 }
 
+## 2nd order Fourier series
+twosine <- function(t, period = 1.0) {
+
+    angular.frequency <- 2*pi / period
+
+    sin(angular.frequency * t) + sin(2*angular.frequency * t + pi/6)
+
+}
+
+
+## Sinusoid with frequency changing linearly at given rate
+freqchange <- function(t, period = 1.0, rate = 0.01) {
+
+    angular.frequency.init <- 2*pi / period
+    angular.frequency <- rate*t + angular.frequency.init
+
+    sin(angular.frequency * t)
+
+}
+
 ## Sinusoidal signal with given period.
 sinusoid <- function(t, period = 1.0) {
 
@@ -50,13 +70,21 @@ signal.types <- list(
     sinusoid = sinusoid,
     sawtooth = sawtooth,
     triangle = triangle,
-    square   = square
+    square   = square,
+    twosine  = twosine,
+    freqchange = freqchange
 )
 
 ## Mapping of noise type names to generating functions.
 noise.types <- list(
     normal   = rnorm,
     foobar   = rnorm
+)
+
+## Mapping of EMD type names to functions.
+emd.methods <- list(
+    emd      = emd,
+    semd     = semd
 )
 
 ## Generate asignal with the given deterministic and stochastic generating
@@ -80,10 +108,9 @@ generate.signal <- function(fn = sinusoid, noise = rnorm,
 }
 
 ## Decompose a signal using EMD.
-## TODO: Add support for different EMD implementations.
-decompose.signal <- function(t, x) {
+decompose.signal <- function(t, x, emd.fn = emd, emd.args = list()) {
 
-    emd(xt = x, tt = t, boundary = "periodic")
+    do.call(function(...) { emd.fn(xt = x, tt = t, ...) }, emd.args)
 
 }
 
@@ -327,11 +354,47 @@ plot.mutual.information <- function(mutual.information,
 
 }
 
+## Turn a list of key-value pairs [[k1, v1], ..., [kN, vN]] into a list where
+## each key maps to its respective value, [k1 = v1, ..., kN = vN].
+key.val.list <- function(kv.list) {
+
+    ret = list()
+
+    for (key.val.pair in kv.list) {
+        key <- key.val.pair[1]
+        val <- key.val.pair[2]
+
+        ret[[key]] <- val
+    }
+
+    ret
+
+}
+
+## Evaluate a string containing a valid R expression
+parse.and.eval <- function(string) {
+
+    eval(parse(text=string))
+
+}
+
+
+
+## Evaluate the (string) keys of a list as R expressions
+eval.keys <- function(list) {
+
+    lapply(list, parse.and.eval)
+
+}
+
+
+
+
 ## Parse CLI arguments.
 get.args <- function() {
 
     p <- ArgumentParser(
-        description = "Concept script for decomposing singals with EMD.")
+        description = "Concept script for decomposing signals with EMD.")
 
     add_argument <- function(...) { p$add_argument(...) }
 
@@ -360,10 +423,19 @@ get.args <- function() {
         default = "FFT",
         help = "Method used for Fourier transformation.")
 
+    add_argument("--emd-method", choices = c("emd", "semd"),
+        default = "emd",
+        help = "Method used for Empirical Mode Decomposition")
+    add_argument("--emd-args", action = "append", nargs = 2,
+        help = "Provide a key value pair to pass as an argument to EMD method.")
+
+
     args <- p$parse_args()
 
     args$signal_type <- signal.types[[args$signal_type]]
-    args$noise_type <- noise.types[[args$noise_type]]
+    args$noise_type  <- noise.types[[args$noise_type]]
+    args$emd_method  <- emd.methods[[args$emd_method]]
+    args$emd_args    <- eval.keys(key.val.list(args$emd_args))
 
     args
 
@@ -391,12 +463,15 @@ main <- function() {
                               num.cycles = args$num_cycles)
 
     # Decompose signal into IMFs and residue with EMD.
-    emd.result <- decompose.signal(signal$t, signal$observation)
+    emd.result <- decompose.signal(signal$t, signal$observation,
+                                   args$emd_method, args$emd_args)
     # Take the Fourier transform of each IMF.
     fourier.transform <- fourier.transform(signal$t, emd.result$imf,
                                            method = args$fourier_method)
     # Determine mutual information of adjacent IMFs.
     mutual.information <- apply(fourier.transform$phase.spectra, 1, rbind)
+    print(mutual.information)
+    print(cor(t(mutual.information))^2)
     mutual.information <- makemim(mutual.information)
     mutual.information <-
         diag(mutual.information[-length(mutual.information), -1])
